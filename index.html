@@ -205,7 +205,8 @@
 
   </div>
 
-  <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js" integrity="sha384-b5Ya4Bq3qCyz39m2ISh+4DxjAIljdeFwK/BsXLuj9gugaNwAcj/ia15fxNZL9Nlx" crossorigin="anonymous"></script>
+  <!-- jsQR は同梱（外部CDNに依存しない＝ネット経路が1つ減り、毎朝動く確実性が上がる） -->
+  <script src="jsQR.js"></script>
   <script>
     // 打刻の確定・認証はすべて GAS 側（Googleドメイン+ACCESS_KEY+個人QRトークン）。
     // このページは「時計として常駐し、タップされたらQRを読んで GAS へ渡す」だけ。秘密は持たない。
@@ -271,6 +272,28 @@
     }
     var resultTimer = null;
 
+    // 端末側で完結するエラー表示（通信不能・初期化失敗）。必ず数秒で時計へ戻し、無人端末が固まらないようにする
+    function showLocalError(icon, msg, sub) {
+      navigating = false; scanning = false;
+      $('rcard').style.setProperty('--rc', '#f87171');
+      $('rAvatar').textContent = icon;
+      $('rMsg').textContent = msg;
+      $('rTime').textContent = '';
+      $('rSub').textContent = sub || '';
+      $('rChips').textContent = '';
+      show('result'); beep('error');
+      clearTimeout(resultTimer);
+      resultTimer = setTimeout(goClock, 5000);
+    }
+
+    // 打刻署名用の SHA-256（16進）。鍵とQRトークンをURLに載せないための土台
+    async function sha256Hex(str) {
+      var buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
+      return Array.prototype.map.call(new Uint8Array(buf), function (b) {
+        return ('0' + b.toString(16)).slice(-2);
+      }).join('');
+    }
+
     // ---- WebAudio 効果音（外部音源なし） ----
     var audioCtx = null;
     function unlockAudio() { try { audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)(); if (audioCtx.state === 'suspended') audioCtx.resume(); } catch (e) {} }
@@ -293,6 +316,9 @@
 
     function loop() {
       if (!scanning || navigating) return;
+      if (typeof jsQR !== 'function') {  // 読み込み失敗時、カメラは点いたまま無反応…を避ける
+        return showLocalError('⚠️', 'QR読み取りを初期化できませんでした', 'ページを再読み込みしてください');
+      }
       if (video.readyState === video.HAVE_ENOUGH_DATA && video.videoWidth > 0) {
         canvas.width = video.videoWidth; canvas.height = video.videoHeight;
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
@@ -302,14 +328,34 @@
       }
       requestAnimationFrame(loop);
     }
-    function onScan(text) {
+    async function onScan(text) {
       var now = Date.now();
       if (text === lastPayload && (now - lastAt) < 8000) return requestAnimationFrame(loop);
       if (!/^KINTAI:/.test(text)) return requestAnimationFrame(loop); // 無関係なQRは無視して継続
       lastPayload = text; lastAt = now; navigating = true; scanning = false;
+
+      // 通信不能なら遷移しない。飛ばした先がSafariのエラーページだと無人端末が「壊れている」状態で固まる
+      if (navigator.onLine === false) {
+        return showLocalError('📡', 'ネットワークに接続されていません', '通信が戻ってから、もう一度かざしてください');
+      }
       show('proc');
-      // トップレベル遷移＝Googleセッションが効く。GASが #r= 付きで戻す（未対応でも従来通り動く）
-      location.href = GAS_EXEC + '?p=punchgo&k=' + encodeURIComponent(ACCESS_KEY) + '&qr=' + encodeURIComponent(text) + '&back=' + encodeURIComponent(location.origin + location.pathname);
+
+      var back = encodeURIComponent(location.origin + location.pathname);
+      var url = null;
+      var parts = /^KINTAI:([A-Za-z0-9_-]{1,32}):([a-f0-9]{32})$/.exec(text);
+      if (parts && window.crypto && window.crypto.subtle) {
+        // 署名方式: 鍵もQRトークンもURLに載せない（サーバーログ・端末履歴に残さない）
+        // h = SHA256(uid:token:t:ACCESS_KEY) をサーバーが再計算して照合。時限＋使い捨て
+        try {
+          var t = Date.now();
+          var h = await sha256Hex(parts[1] + ':' + parts[2] + ':' + t + ':' + ACCESS_KEY);
+          url = GAS_EXEC + '?p=punchgo&uid=' + encodeURIComponent(parts[1]) + '&t=' + t + '&h=' + h + '&back=' + back;
+        } catch (e) { url = null; }
+      }
+      if (!url) {  // crypto.subtle が無い環境向けの後方互換（鍵がURLに載るため署名方式を優先）
+        url = GAS_EXEC + '?p=punchgo&k=' + encodeURIComponent(ACCESS_KEY) + '&qr=' + encodeURIComponent(text) + '&back=' + back;
+      }
+      location.href = url;
     }
     async function startCamera(fromTap) {
       unlockAudio();

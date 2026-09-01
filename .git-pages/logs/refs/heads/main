@@ -1,0 +1,4 @@
+0000000000000000000000000000000000000000 d74fda7fd6c944f2293b3ef940ae27ba0619b21a matsubara457 <tatsuhiro.matsubara@nahato.co.jp> 1788227297 +0900	commit (initial): 勤怠打刻スキャナー（iPad Safari用・GAS punchgoへのリダイレクト方式）
+d74fda7fd6c944f2293b3ef940ae27ba0619b21a 955d0e5b73cf30d29ea412bb10d4508c293dd841 matsubara457 <tatsuhiro.matsubara@nahato.co.jp> 1788227859 +0900	commit: イン/アウトカメラ切替ボタンを追加（選択を端末に記憶・インカメ時はプレビューのみ鏡像）
+955d0e5b73cf30d29ea412bb10d4508c293dd841 6010f285d61a134d7f54d3035042ca9b4c556727 matsubara457 <tatsuhiro.matsubara@nahato.co.jp> 1788233041 +0900	commit: 時計待機モード＋全面リデザイン（時間帯パレット・カメラOFF待機・タップで打刻・結果画面）
+6010f285d61a134d7f54d3035042ca9b4c556727 c176b758b2122aeb387d0c6692c978aad7573d73 matsubara457 <tatsuhiro.matsubara@nahato.co.jp> 1788233548 +0900	commit: ブランド名を「ナハトX勤怠」に変更
