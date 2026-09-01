@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+<meta name="referrer" content="no-referrer" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<title>勤怠打刻スキャナー</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;700;900&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --bg: #0d1117; --panel: #161b22; --border: #2b323c;
+    --text: #e6edf3; --dim: #7d8590; --accent: #2dd4bf;
+    --glow: rgba(45, 212, 191, .35); --danger: #f85149;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; height: 100%; min-height: 100dvh;
+    background: radial-gradient(ellipse 120% 55% at 50% -8%, #1c2530 0%, var(--bg) 55%);
+    color: var(--text); font-family: 'Noto Sans JP', sans-serif;
+    overflow: hidden; -webkit-user-select: none; user-select: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .screen { min-height: 100dvh; display: flex; flex-direction: column; }
+  .brand { padding-top: max(1rem, env(safe-area-inset-top)); text-align: center; font-size: .8rem; letter-spacing: .25em; color: var(--dim); opacity: .55; }
+  .clock-area { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .3rem; min-height: 0; }
+  .clock { font-size: clamp(3rem, 13vw, 8rem); font-weight: 900; line-height: 1; font-variant-numeric: tabular-nums; text-shadow: 0 0 40px rgba(45,212,191,.18); }
+  .date { font-size: clamp(.95rem, 3vw, 1.5rem); color: var(--dim); letter-spacing: .08em; }
+  .cam-area { flex: 0 0 auto; display: flex; flex-direction: column; align-items: center; padding: 0 4vw max(2.4vh, 14px); }
+  .frame { position: relative; width: min(92vw, 480px); height: clamp(190px, 36vh, 380px); background: #000; border-radius: 22px; overflow: hidden; border: 1px solid var(--border); box-shadow: 0 18px 40px rgba(0,0,0,.4); }
+  .frame video { width: 100%; height: 100%; object-fit: cover; display: block; pointer-events: none; }
+  .corners { position: absolute; inset: 12% 16%; pointer-events: none; }
+  .c { position: absolute; width: 30px; height: 30px; border: 4px solid var(--accent); filter: drop-shadow(0 0 6px var(--glow)); }
+  .c1 { top:0; left:0; border-right:none; border-bottom:none; border-top-left-radius:10px; }
+  .c2 { top:0; right:0; border-left:none; border-bottom:none; border-top-right-radius:10px; }
+  .c3 { bottom:0; left:0; border-right:none; border-top:none; border-bottom-left-radius:10px; }
+  .c4 { bottom:0; right:0; border-left:none; border-top:none; border-bottom-right-radius:10px; }
+  .scanline { position: absolute; left: 3%; right: 3%; top: 6%; height: 3px; background: linear-gradient(90deg, transparent, var(--accent), transparent); box-shadow: 0 0 12px 2px var(--glow); animation: sweep 2.4s ease-in-out infinite; }
+  @keyframes sweep { 0% { top: 6%; } 50% { top: 88%; } 100% { top: 6%; } }
+  .hint { margin-top: .9rem; color: var(--dim); font-size: clamp(.9rem, 2.6vw, 1.2rem); letter-spacing: .05em; }
+  .overlay { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 6vw; background: rgba(13,17,23,.92); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); z-index: 50; }
+  .hidden { display: none !important; }
+  .big-btn { font-family: inherit; font-size: clamp(1.1rem, 4vw, 1.6rem); font-weight: 900; color: #03251f; background: linear-gradient(135deg, var(--accent), #8bf3e3); border: none; padding: 1em 2.4em; border-radius: 999px; cursor: pointer; box-shadow: 0 0 50px var(--glow); animation: pulse 2.2s ease-in-out infinite; touch-action: manipulation; }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .6; } }
+  .ov-title { font-size: clamp(1rem, 3.4vw, 1.4rem); color: var(--dim); letter-spacing: .1em; margin-bottom: 2rem; }
+  .ov-icon { font-size: clamp(2.6rem, 9vw, 4.2rem); margin-bottom: .8rem; }
+  .err { color: var(--danger); font-weight: 700; line-height: 1.8; }
+  .spinner { width: 56px; height: 56px; border-radius: 50%; border: 6px solid rgba(255,255,255,.12); border-top-color: var(--accent); animation: spin .8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .proc-text { margin-top: 1.2rem; color: var(--dim); letter-spacing: .1em; }
+  @media (orientation: landscape) and (max-height: 620px) {
+    .screen { flex-direction: row; }
+    .clock-area { flex: 1 1 55%; }
+    .cam-area { flex: 1 1 45%; justify-content: center; }
+    .frame { height: clamp(160px, 70vh, 320px); }
+    .brand { position: absolute; top: .6rem; left: 0; right: 0; }
+  }
+  @media (prefers-reduced-motion: reduce) { .scanline, .big-btn { animation: none; } }
+</style>
+</head>
+<body>
+
+  <div class="screen">
+    <div class="brand">勤怠打刻システム</div>
+    <div class="clock-area">
+      <div class="clock" id="clock">--:--:--</div>
+      <div class="date" id="date">----年--月--日（-）</div>
+    </div>
+    <div class="cam-area">
+      <div class="frame">
+        <video id="video" playsinline webkit-playsinline autoplay muted></video>
+        <canvas id="canvas" hidden></canvas>
+        <div class="corners"><span class="c c1"></span><span class="c c2"></span><span class="c c3"></span><span class="c c4"></span><span class="scanline"></span></div>
+      </div>
+      <div class="hint">QRコードをカメラにかざしてください</div>
+    </div>
+  </div>
+
+  <!-- タップして開始（初回 / 自動再開に失敗したとき） -->
+  <div class="overlay" id="startOverlay">
+    <div class="ov-icon">⏱️</div>
+    <div class="ov-title">勤怠打刻システム</div>
+    <button type="button" class="big-btn" id="startBtn">タップして開始</button>
+    <div class="err hidden" id="camError" style="margin-top:1.4rem"></div>
+  </div>
+
+  <!-- 未セットアップ（アクセスキー未登録） -->
+  <div class="overlay hidden" id="setupOverlay">
+    <div class="ov-icon">🔑</div>
+    <div class="err">この端末はまだセットアップされていません<br><span style="color:var(--dim);font-weight:400;font-size:.9em">管理者から受け取ったセットアップ用URL（#k= 付き）でこのページを開き直してください</span></div>
+  </div>
+
+  <!-- 打刻処理中（GASへ遷移するまでの表示） -->
+  <div class="overlay hidden" id="goOverlay">
+    <div class="spinner"></div>
+    <div class="proc-text">打刻しています…</div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js" integrity="sha384-b5Ya4Bq3qCyz39m2ISh+4DxjAIljdeFwK/BsXLuj9gugaNwAcj/ia15fxNZL9Nlx" crossorigin="anonymous"></script>
+  <script>
+    // 打刻の確定処理はすべて GAS 側（認証: Googleドメイン + アクセスキー + 個人QRトークン）。
+    // このページは「QRを読み取って GAS へ届ける」だけで、秘密は一切ハードコードしない。
+    var GAS_EXEC = 'https://script.google.com/a/macros/nahato.co.jp/s/AKfycby9JORQVA2E4_-ME2N73agDVhMAi1poWEg9Ju62Kl6o-KtVIZ_4jzkRzcMbr5pVjeFS_g/exec';
+    var KEY_STORE = 'kintai-scanner-key';
+
+    var video = document.getElementById('video');
+    var canvas = document.getElementById('canvas');
+    var ctx = canvas.getContext('2d', { willReadFrequently: true });
+    var startOverlay = document.getElementById('startOverlay');
+    var startBtn = document.getElementById('startBtn');
+    var camError = document.getElementById('camError');
+    var setupOverlay = document.getElementById('setupOverlay');
+    var goOverlay = document.getElementById('goOverlay');
+
+    var scanning = false;
+    var navigating = false;
+    var lastPayload = null;
+    var lastPayloadAt = 0;
+
+    // ===== アクセスキー: 初回に #k=... から取り込み、以後はこの端末のブラウザにだけ保存 =====
+    function loadKey() {
+      var key = null;
+      try { key = localStorage.getItem(KEY_STORE); } catch (e) {}
+      var m = /[#&]k=([A-Za-z0-9_-]{8,64})/.exec(location.hash || '');
+      if (m) {
+        key = m[1];
+        try { localStorage.setItem(KEY_STORE, key); } catch (e) {}
+        try { history.replaceState(null, '', location.pathname + location.search); } catch (e) {}
+      }
+      return key;
+    }
+    var ACCESS_KEY = loadKey();
+
+    // ===== 時計 =====
+    var DOW = ['日','月','火','水','木','金','土'];
+    function tickClock() {
+      var n = new Date();
+      var p2 = function (x) { return (x < 10 ? '0' : '') + x; };
+      document.getElementById('clock').textContent = p2(n.getHours()) + ':' + p2(n.getMinutes()) + ':' + p2(n.getSeconds());
+      document.getElementById('date').textContent = n.getFullYear() + '年' + (n.getMonth()+1) + '月' + n.getDate() + '日（' + DOW[n.getDay()] + '）';
+    }
+    tickClock(); setInterval(tickClock, 1000);
+
+    // ===== カメラ＆スキャン =====
+    function scanLoop() {
+      if (!scanning || navigating) return;
+      if (video.readyState === video.HAVE_ENOUGH_DATA && video.videoWidth > 0) {
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        var img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        var code = jsQR(img.data, img.width, img.height, { inversionAttempts: 'dontInvert' });
+        if (code && code.data) onScan(code.data);
+      }
+      requestAnimationFrame(scanLoop);
+    }
+
+    function onScan(text) {
+      var now = Date.now();
+      // 打刻から戻った直後に同じカードが映っていても連打しない（サーバー側にも60秒の二重打刻ガードあり）
+      if (text === lastPayload && (now - lastPayloadAt) < 8000) return;
+      if (!/^KINTAI:/.test(text)) return; // 無関係なQRは静かに無視してスキャン継続
+      lastPayload = text;
+      lastPayloadAt = now;
+      navigating = true;
+      goOverlay.classList.remove('hidden');
+      // トップレベル遷移なので Google のログインセッションがそのまま効く（fetch と違い CORS の制約を受けない）
+      location.href = GAS_EXEC + '?p=punchgo&k=' + encodeURIComponent(ACCESS_KEY) + '&qr=' + encodeURIComponent(text);
+    }
+
+    async function startCamera(fromGesture) {
+      camError.classList.add('hidden');
+      try {
+        var stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+        video.srcObject = stream;
+        try { await video.play(); } catch (e) {}
+        startOverlay.classList.add('hidden');
+        scanning = true;
+        navigating = false;
+        requestAnimationFrame(scanLoop);
+        return true;
+      } catch (err) {
+        if (fromGesture) {
+          camError.textContent = 'カメラを起動できません。設定アプリ → Safari → カメラ を「許可」にして再読み込みしてください';
+          camError.classList.remove('hidden');
+        }
+        startOverlay.classList.remove('hidden');
+        return false;
+      }
+    }
+
+    startBtn.addEventListener('click', function () { startCamera(true); });
+
+    // 打刻結果ページから history.back() で戻ってきたとき（bfcache）にスキャンを自動再開
+    window.addEventListener('pageshow', function (ev) {
+      navigating = false;
+      goOverlay.classList.add('hidden');
+      if (ev.persisted) {
+        if (video.srcObject && video.srcObject.active) {
+          scanning = true;
+          requestAnimationFrame(scanLoop);
+        } else {
+          startCamera(false); // ストリームが死んでいたら再取得（許可済みなら無操作で復帰）
+        }
+      }
+    });
+
+    // ===== 起動 =====
+    if (!ACCESS_KEY) {
+      startOverlay.classList.add('hidden');
+      setupOverlay.classList.remove('hidden');
+    } else {
+      // 許可済み端末なら自動起動を試み、ダメなら「タップして開始」を出す
+      startCamera(false);
+    }
+  </script>
+</body>
+</html>
