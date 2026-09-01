@@ -2,253 +2,360 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
 <meta name="referrer" content="no-referrer" />
 <meta name="mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
-<title>勤怠打刻スキャナー</title>
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<title>勤怠打刻</title>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;700;900&display=swap" rel="stylesheet" />
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@200;300;500;700&family=Zen+Kaku+Gothic+New:wght@500;700;900&display=swap" rel="stylesheet" />
 <style>
+  /* ===== 時間帯で変わるパレット（常時オンの時計が「いまが何時ごろか」を色で語る） ===== */
   :root {
-    --bg: #0d1117; --panel: #161b22; --border: #2b323c;
-    --text: #e6edf3; --dim: #7d8590; --accent: #2dd4bf;
-    --glow: rgba(45, 212, 191, .35); --danger: #f85149;
+    --g1: #10192e; --g2: #253a63; --accent: #6fd6ff; --accent-soft: rgba(111,214,255,.16);
+    --ink: #ffffff; --dim: rgba(255,255,255,.62); --faint: rgba(255,255,255,.30);
+    --card: rgba(255,255,255,.07); --card-line: rgba(255,255,255,.14);
+    --grad-shift: 22s;
   }
-  * { box-sizing: border-box; }
+  :root[data-tod="dawn"] { --g1:#43305f; --g2:#c68a77; --accent:#ffd0a8; --accent-soft:rgba(255,208,168,.18); }
+  :root[data-tod="day"]  { --g1:#1f4a78; --g2:#5aa6cf; --accent:#a6f2df; --accent-soft:rgba(166,242,223,.18); }
+  :root[data-tod="dusk"] { --g1:#5f3550; --g2:#d98a4e; --accent:#ffd27a; --accent-soft:rgba(255,210,122,.18); }
+  :root[data-tod="night"]{ --g1:#0d1526; --g2:#233960; --accent:#6fd6ff; --accent-soft:rgba(111,214,255,.16); }
+
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   html, body {
-    margin: 0; height: 100%; min-height: 100dvh;
-    background: radial-gradient(ellipse 120% 55% at 50% -8%, #1c2530 0%, var(--bg) 55%);
-    color: var(--text); font-family: 'Noto Sans JP', sans-serif;
-    overflow: hidden; -webkit-user-select: none; user-select: none;
-    -webkit-tap-highlight-color: transparent;
+    margin: 0; height: 100%; min-height: 100dvh; overflow: hidden;
+    background: var(--g1); color: var(--ink);
+    font-family: 'Zen Kaku Gothic New', 'Noto Sans JP', sans-serif;
+    -webkit-user-select: none; user-select: none;
+    -webkit-font-smoothing: antialiased;
   }
-  .screen { min-height: 100dvh; display: flex; flex-direction: column; }
-  .brand { padding-top: max(1rem, env(safe-area-inset-top)); text-align: center; font-size: .8rem; letter-spacing: .25em; color: var(--dim); opacity: .55; }
-  .clock-area { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .3rem; min-height: 0; }
-  .clock { font-size: clamp(3rem, 13vw, 8rem); font-weight: 900; line-height: 1; font-variant-numeric: tabular-nums; text-shadow: 0 0 40px rgba(45,212,191,.18); }
-  .date { font-size: clamp(.95rem, 3vw, 1.5rem); color: var(--dim); letter-spacing: .08em; }
-  .cam-area { flex: 0 0 auto; display: flex; flex-direction: column; align-items: center; padding: 0 4vw max(2.4vh, 14px); }
-  .frame { position: relative; width: min(92vw, 480px); height: clamp(190px, 36vh, 380px); background: #000; border-radius: 22px; overflow: hidden; border: 1px solid var(--border); box-shadow: 0 18px 40px rgba(0,0,0,.4); }
+  body {
+    position: relative;
+    background:
+      radial-gradient(120% 80% at 18% 12%, color-mix(in srgb, var(--g2) 55%, transparent) 0%, transparent 60%),
+      radial-gradient(130% 90% at 85% 90%, color-mix(in srgb, var(--accent) 22%, transparent) 0%, transparent 55%),
+      linear-gradient(155deg, var(--g1), var(--g2));
+    transition: background 2.5s ease;
+  }
+  /* ゆっくり漂う光（常時オンでも眠くならない程度の微細な動き） */
+  .aura { position: fixed; inset: -20%; z-index: 0; pointer-events: none;
+    background: radial-gradient(40% 40% at 50% 50%, var(--accent-soft), transparent 70%);
+    animation: drift var(--grad-shift) ease-in-out infinite; opacity: .9; }
+  @keyframes drift {
+    0%   { transform: translate(-8%, -6%) scale(1.05); }
+    50%  { transform: translate(10%, 8%) scale(1.25); }
+    100% { transform: translate(-8%, -6%) scale(1.05); }
+  }
+
+  .stage { position: relative; z-index: 1; height: 100dvh; }
+  .view { position: absolute; inset: 0; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; text-align: center;
+    padding: max(4vh, env(safe-area-inset-top)) 6vw max(4vh, env(safe-area-inset-bottom));
+    opacity: 0; visibility: hidden; transition: opacity .5s ease; }
+  .view.active { opacity: 1; visibility: visible; }
+
+  /* ===== 待機＝時計 ===== */
+  .brand { position: fixed; top: max(1.4rem, env(safe-area-inset-top)); left: 0; right: 0;
+    text-align: center; font-size: .74rem; letter-spacing: .45em; color: var(--faint);
+    text-transform: uppercase; z-index: 2; }
+  .greet { font-size: clamp(1rem, 3.2vw, 1.7rem); color: var(--dim); font-weight: 500;
+    letter-spacing: .06em; margin-bottom: clamp(.4rem, 1.5vh, 1rem); }
+  .clock { font-family: 'Sora', sans-serif; font-weight: 200; line-height: .9;
+    font-size: clamp(5rem, 26vw, 20rem); letter-spacing: -.01em;
+    font-variant-numeric: tabular-nums; display: flex; align-items: baseline; justify-content: center; }
+  .clock .colon { animation: blink 2s steps(1) infinite; margin: 0 .06em; font-weight: 200; }
+  .clock .sec { font-size: .26em; font-weight: 300; color: var(--accent); align-self: flex-start;
+    margin-left: .18em; margin-top: .4em; font-variant-numeric: tabular-nums; letter-spacing: .02em; }
+  @keyframes blink { 0%,50% { opacity: 1; } 51%,100% { opacity: .28; } }
+  .date { margin-top: clamp(.6rem, 2vh, 1.4rem); font-size: clamp(1rem, 3.4vw, 1.9rem);
+    color: var(--dim); font-weight: 500; letter-spacing: .12em; }
+  .tap-hint { margin-top: clamp(1.6rem, 5vh, 3.4rem); display: inline-flex; align-items: center; gap: .6em;
+    padding: .8em 1.7em; border-radius: 999px; background: var(--card); border: 1px solid var(--card-line);
+    color: var(--ink); font-size: clamp(.85rem, 2.4vw, 1.15rem); font-weight: 700; letter-spacing: .04em;
+    -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+    animation: breathe 3.4s ease-in-out infinite; }
+  .tap-hint .dot { width: .55em; height: .55em; border-radius: 50%; background: var(--accent);
+    box-shadow: 0 0 12px var(--accent); }
+  @keyframes breathe { 0%,100% { transform: translateY(0); opacity: .92; } 50% { transform: translateY(-4px); opacity: 1; } }
+
+  /* ===== スキャン ===== */
+  .scan-title { font-size: clamp(1.1rem, 3.6vw, 1.7rem); font-weight: 700; margin-bottom: 1.4rem; letter-spacing: .04em; }
+  .frame { position: relative; width: min(86vw, 460px); height: min(56vh, 460px);
+    background: #000; border-radius: 30px; overflow: hidden; border: 1px solid var(--card-line);
+    box-shadow: 0 30px 70px rgba(0,0,0,.45); }
   .frame video { width: 100%; height: 100%; object-fit: cover; display: block; pointer-events: none; }
-  .frame video.mirror { transform: scaleX(-1); } /* インカメ時はプレビューのみ鏡像（解析は非反転の生映像） */
-  .flip-btn {
-    position: absolute; top: 10px; right: 10px; z-index: 5;
-    width: 44px; height: 44px; border-radius: 50%;
-    background: rgba(13,17,23,.65); border: 1px solid var(--border);
-    color: var(--text); font-size: 1.25rem; cursor: pointer;
-    display: flex; align-items: center; justify-content: center;
-    -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
-    touch-action: manipulation;
-  }
-  .corners { position: absolute; inset: 12% 16%; pointer-events: none; }
-  .c { position: absolute; width: 30px; height: 30px; border: 4px solid var(--accent); filter: drop-shadow(0 0 6px var(--glow)); }
-  .c1 { top:0; left:0; border-right:none; border-bottom:none; border-top-left-radius:10px; }
-  .c2 { top:0; right:0; border-left:none; border-bottom:none; border-top-right-radius:10px; }
-  .c3 { bottom:0; left:0; border-right:none; border-top:none; border-bottom-left-radius:10px; }
-  .c4 { bottom:0; right:0; border-left:none; border-top:none; border-bottom-right-radius:10px; }
-  .scanline { position: absolute; left: 3%; right: 3%; top: 6%; height: 3px; background: linear-gradient(90deg, transparent, var(--accent), transparent); box-shadow: 0 0 12px 2px var(--glow); animation: sweep 2.4s ease-in-out infinite; }
-  @keyframes sweep { 0% { top: 6%; } 50% { top: 88%; } 100% { top: 6%; } }
-  .hint { margin-top: .9rem; color: var(--dim); font-size: clamp(.9rem, 2.6vw, 1.2rem); letter-spacing: .05em; }
-  .overlay { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 6vw; background: rgba(13,17,23,.92); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); z-index: 50; }
-  .hidden { display: none !important; }
-  .big-btn { font-family: inherit; font-size: clamp(1.1rem, 4vw, 1.6rem); font-weight: 900; color: #03251f; background: linear-gradient(135deg, var(--accent), #8bf3e3); border: none; padding: 1em 2.4em; border-radius: 999px; cursor: pointer; box-shadow: 0 0 50px var(--glow); animation: pulse 2.2s ease-in-out infinite; touch-action: manipulation; }
-  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .6; } }
+  .frame video.mirror { transform: scaleX(-1); }
+  .reticle { position: absolute; inset: 14% 15%; pointer-events: none; }
+  .corner { position: absolute; width: 34px; height: 34px; border: 3px solid var(--accent);
+    filter: drop-shadow(0 0 8px var(--accent)); }
+  .corner.tl{top:0;left:0;border-right:0;border-bottom:0;border-top-left-radius:12px}
+  .corner.tr{top:0;right:0;border-left:0;border-bottom:0;border-top-right-radius:12px}
+  .corner.bl{bottom:0;left:0;border-right:0;border-top:0;border-bottom-left-radius:12px}
+  .corner.br{bottom:0;right:0;border-left:0;border-top:0;border-bottom-right-radius:12px}
+  .laser { position: absolute; left: 4%; right: 4%; top: 6%; height: 2px;
+    background: linear-gradient(90deg, transparent, var(--accent), transparent);
+    box-shadow: 0 0 16px 3px var(--accent-soft); animation: laser 2.6s ease-in-out infinite; }
+  @keyframes laser { 0%{top:6%}50%{top:90%}100%{top:6%} }
+  .scan-actions { margin-top: 1.6rem; display: flex; gap: 12px; }
+  .pill { font-family: inherit; font-weight: 700; font-size: 1rem; padding: .7em 1.5em; border-radius: 999px;
+    border: 1px solid var(--card-line); background: var(--card); color: var(--ink); cursor: pointer;
+    -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); display: inline-flex; align-items: center; gap: .5em; }
+  .pill.ghost { background: transparent; color: var(--dim); }
+
+  /* ===== 結果 ===== */
+  .result-card { width: min(88vw, 560px); padding: clamp(2.4rem, 7vh, 4rem) clamp(1.6rem, 8vw, 3.5rem);
+    border-radius: 40px; background: var(--card); border: 2px solid var(--rc, var(--accent));
+    box-shadow: 0 0 90px -12px var(--rc, var(--accent)); -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px);
+    animation: pop .55s cubic-bezier(.2,.9,.3,1.3); }
+  @keyframes pop { from { opacity:0; transform: scale(.82) translateY(14px); } to { opacity:1; transform: none; } }
+  .r-avatar { font-size: clamp(4.5rem, 20vw, 9rem); line-height: 1; filter: drop-shadow(0 8px 24px rgba(0,0,0,.3)); }
+  .r-msg { font-size: clamp(1.4rem, 5.5vw, 2.6rem); font-weight: 900; margin-top: 1rem; letter-spacing: .01em; }
+  .r-time { font-family: 'Sora', sans-serif; font-size: clamp(2rem, 8vw, 3.6rem); font-weight: 300;
+    color: var(--rc, var(--accent)); margin-top: .3rem; font-variant-numeric: tabular-nums; }
+  .r-sub { font-size: clamp(1rem, 3.4vw, 1.4rem); color: var(--dim); margin-top: .5rem; }
+  .r-chips { display: flex; flex-wrap: wrap; gap: .5rem; justify-content: center; margin-top: 1.5rem; }
+  .r-chip { background: rgba(255,255,255,.1); border: 1px solid var(--card-line); color: var(--ink);
+    padding: .5rem 1.1rem; border-radius: 999px; font-size: clamp(.85rem, 2.4vw, 1.15rem); font-weight: 700; }
+  .r-chip.badge { background: linear-gradient(135deg, rgba(255,213,74,.28), rgba(255,213,74,.06)); border-color: #ffd54a; color: #ffe6a3; }
+
+  /* ===== 起動/エラー/セットアップ ===== */
+  .big-btn { font-family: inherit; font-size: clamp(1.1rem, 4vw, 1.6rem); font-weight: 900; color: #06211d;
+    background: linear-gradient(135deg, var(--accent), #ffffff); border: none; padding: 1.05em 2.6em; border-radius: 999px;
+    cursor: pointer; box-shadow: 0 0 50px var(--accent-soft); animation: breathe 3s ease-in-out infinite; }
+  .ov-icon { font-size: clamp(2.6rem, 9vw, 4.4rem); margin-bottom: .8rem; }
   .ov-title { font-size: clamp(1rem, 3.4vw, 1.4rem); color: var(--dim); letter-spacing: .1em; margin-bottom: 2rem; }
-  .ov-icon { font-size: clamp(2.6rem, 9vw, 4.2rem); margin-bottom: .8rem; }
-  .err { color: var(--danger); font-weight: 700; line-height: 1.8; }
-  .spinner { width: 56px; height: 56px; border-radius: 50%; border: 6px solid rgba(255,255,255,.12); border-top-color: var(--accent); animation: spin .8s linear infinite; }
+  .err { color: #ffb4ae; font-weight: 700; line-height: 1.9; max-width: 30rem; }
+  .spinner { width: 58px; height: 58px; border-radius: 50%; border: 5px solid rgba(255,255,255,.14);
+    border-top-color: var(--accent); animation: spin .8s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
-  .proc-text { margin-top: 1.2rem; color: var(--dim); letter-spacing: .1em; }
-  @media (orientation: landscape) and (max-height: 620px) {
-    .screen { flex-direction: row; }
-    .clock-area { flex: 1 1 55%; }
-    .cam-area { flex: 1 1 45%; justify-content: center; }
-    .frame { height: clamp(160px, 70vh, 320px); }
-    .brand { position: absolute; top: .6rem; left: 0; right: 0; }
+  .proc-text { margin-top: 1.3rem; color: var(--dim); letter-spacing: .14em; }
+
+  .flip { position: absolute; top: 14px; right: 14px; z-index: 3; width: 46px; height: 46px; border-radius: 50%;
+    background: rgba(0,0,0,.4); border: 1px solid var(--card-line); color: #fff; font-size: 1.3rem; cursor: pointer;
+    -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); display: flex; align-items: center; justify-content: center; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .aura, .clock .colon, .tap-hint, .laser, .big-btn, .result-card { animation: none; }
+    body, .view { transition: none; }
   }
-  @media (prefers-reduced-motion: reduce) { .scanline, .big-btn { animation: none; } }
 </style>
 </head>
-<body>
+<body data-tod="night">
+  <div class="aura"></div>
+  <div class="brand">NAHATO 勤怠</div>
 
-  <div class="screen">
-    <div class="brand">勤怠打刻システム</div>
-    <div class="clock-area">
-      <div class="clock" id="clock">--:--:--</div>
-      <div class="date" id="date">----年--月--日（-）</div>
-    </div>
-    <div class="cam-area">
+  <div class="stage" id="stage">
+
+    <!-- 待機：時計（カメラOFF） -->
+    <section class="view" id="v-clock">
+      <div class="greet" id="greet">こんばんは</div>
+      <div class="clock">
+        <span id="hh">--</span><span class="colon">:</span><span id="mm">--</span><span class="sec" id="ss">--</span>
+      </div>
+      <div class="date" id="date">----年--月--日 -曜日</div>
+      <div class="tap-hint"><span class="dot"></span>画面をタップして打刻</div>
+    </section>
+
+    <!-- スキャン：カメラON -->
+    <section class="view" id="v-scan">
+      <div class="scan-title">QRコードをかざしてください</div>
       <div class="frame">
-        <button type="button" class="flip-btn" id="flipBtn" title="カメラ切替" aria-label="イン/アウトカメラ切替">🔄</button>
+        <button type="button" class="flip" id="flip" aria-label="カメラ切替">🔄</button>
         <video id="video" playsinline webkit-playsinline autoplay muted></video>
         <canvas id="canvas" hidden></canvas>
-        <div class="corners"><span class="c c1"></span><span class="c c2"></span><span class="c c3"></span><span class="c c4"></span><span class="scanline"></span></div>
+        <div class="reticle"><span class="corner tl"></span><span class="corner tr"></span><span class="corner bl"></span><span class="corner br"></span><span class="laser"></span></div>
       </div>
-      <div class="hint">QRコードをカメラにかざしてください</div>
-    </div>
-  </div>
+      <div class="scan-actions">
+        <button type="button" class="pill ghost" id="toClock">← 時計に戻る</button>
+      </div>
+    </section>
 
-  <!-- タップして開始（初回 / 自動再開に失敗したとき） -->
-  <div class="overlay" id="startOverlay">
-    <div class="ov-icon">⏱️</div>
-    <div class="ov-title">勤怠打刻システム</div>
-    <button type="button" class="big-btn" id="startBtn">タップして開始</button>
-    <div class="err hidden" id="camError" style="margin-top:1.4rem"></div>
-  </div>
+    <!-- 処理中 -->
+    <section class="view" id="v-proc">
+      <div class="spinner"></div>
+      <div class="proc-text">打刻しています…</div>
+    </section>
 
-  <!-- 未セットアップ（アクセスキー未登録） -->
-  <div class="overlay hidden" id="setupOverlay">
-    <div class="ov-icon">🔑</div>
-    <div class="err">この端末はまだセットアップされていません<br><span style="color:var(--dim);font-weight:400;font-size:.9em">管理者から受け取ったセットアップ用URL（#k= 付き）でこのページを開き直してください</span></div>
-  </div>
+    <!-- 結果（#r= フラグメントから描画。GASからの復帰時に表示） -->
+    <section class="view" id="v-result">
+      <div class="result-card" id="rcard">
+        <div class="r-avatar" id="rAvatar">🙂</div>
+        <div class="r-msg" id="rMsg"></div>
+        <div class="r-time" id="rTime"></div>
+        <div class="r-sub" id="rSub"></div>
+        <div class="r-chips" id="rChips"></div>
+      </div>
+    </section>
 
-  <!-- 打刻処理中（GASへ遷移するまでの表示） -->
-  <div class="overlay hidden" id="goOverlay">
-    <div class="spinner"></div>
-    <div class="proc-text">打刻しています…</div>
+    <!-- 起動（カメラ許可＝ユーザー操作が要る初回のみ） -->
+    <section class="view" id="v-start">
+      <div class="ov-icon">📷</div>
+      <div class="err" id="startErr" style="display:none"></div>
+      <button type="button" class="big-btn" id="startBtn">カメラを許可して開始</button>
+    </section>
+
+    <!-- 未セットアップ -->
+    <section class="view" id="v-setup">
+      <div class="ov-icon">🔑</div>
+      <div class="err">この端末はまだセットアップされていません<br><span style="color:var(--dim);font-weight:400;font-size:.9em">管理者から受け取ったセットアップ用URL（#k= 付き）で開き直してください</span></div>
+    </section>
+
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js" integrity="sha384-b5Ya4Bq3qCyz39m2ISh+4DxjAIljdeFwK/BsXLuj9gugaNwAcj/ia15fxNZL9Nlx" crossorigin="anonymous"></script>
   <script>
-    // 打刻の確定処理はすべて GAS 側（認証: Googleドメイン + アクセスキー + 個人QRトークン）。
-    // このページは「QRを読み取って GAS へ届ける」だけで、秘密は一切ハードコードしない。
+    // 打刻の確定・認証はすべて GAS 側（Googleドメイン+ACCESS_KEY+個人QRトークン）。
+    // このページは「時計として常駐し、タップされたらQRを読んで GAS へ渡す」だけ。秘密は持たない。
     var GAS_EXEC = 'https://script.google.com/a/macros/nahato.co.jp/s/AKfycby9JORQVA2E4_-ME2N73agDVhMAi1poWEg9Ju62Kl6o-KtVIZ_4jzkRzcMbr5pVjeFS_g/exec';
-    var KEY_STORE = 'kintai-scanner-key';
+    var KEY_STORE = 'kintai-scanner-key', CAM_STORE = 'kintai-scanner-cam';
 
-    var video = document.getElementById('video');
-    var canvas = document.getElementById('canvas');
-    var ctx = canvas.getContext('2d', { willReadFrequently: true });
-    var startOverlay = document.getElementById('startOverlay');
-    var startBtn = document.getElementById('startBtn');
-    var camError = document.getElementById('camError');
-    var setupOverlay = document.getElementById('setupOverlay');
-    var goOverlay = document.getElementById('goOverlay');
+    var $ = function (id) { return document.getElementById(id); };
+    var views = { clock:$('v-clock'), scan:$('v-scan'), proc:$('v-proc'), result:$('v-result'), start:$('v-start'), setup:$('v-setup') };
+    function show(name) { for (var k in views) views[k].classList.toggle('active', k === name); }
 
-    var scanning = false;
-    var navigating = false;
-    var lastPayload = null;
-    var lastPayloadAt = 0;
-
-    // ===== アクセスキー: 初回に #k=... から取り込み、以後はこの端末のブラウザにだけ保存 =====
+    // ---- 鍵とカメラ向き（初回は #k= / #cam= から取り込み、以後は端末に保存） ----
     function loadKey() {
-      var key = null;
-      try { key = localStorage.getItem(KEY_STORE); } catch (e) {}
+      var key = null; try { key = localStorage.getItem(KEY_STORE); } catch (e) {}
       var m = /[#&]k=([A-Za-z0-9_-]{8,64})/.exec(location.hash || '');
-      if (m) {
-        key = m[1];
-        try { localStorage.setItem(KEY_STORE, key); } catch (e) {}
-        try { history.replaceState(null, '', location.pathname + location.search); } catch (e) {}
-      }
+      if (m) { key = m[1]; try { localStorage.setItem(KEY_STORE, key); } catch (e) {} }
       return key;
     }
     var ACCESS_KEY = loadKey();
-
-    // ===== カメラ向き: 端末に記憶。#cam=front / #cam=back でも指定可能 =====
-    var CAM_STORE = 'kintai-scanner-cam';
     var camFacing = 'environment';
     try { camFacing = localStorage.getItem(CAM_STORE) || 'environment'; } catch (e) {}
-    var camM = /[#&]cam=(front|back)/.exec(location.hash || '');
-    if (camM) {
-      camFacing = camM[1] === 'front' ? 'user' : 'environment';
-      try { localStorage.setItem(CAM_STORE, camFacing); } catch (e) {}
-    }
+    var cm = /[#&]cam=(front|back)/.exec(location.hash || '');
+    if (cm) { camFacing = cm[1] === 'front' ? 'user' : 'environment'; try { localStorage.setItem(CAM_STORE, camFacing); } catch (e) {} }
 
-    // ===== 時計 =====
+    // ---- 時計＋時間帯パレット ----
     var DOW = ['日','月','火','水','木','金','土'];
+    function tod(h) { return h < 5 ? 'night' : h < 9 ? 'dawn' : h < 17 ? 'day' : h < 20 ? 'dusk' : 'night'; }
+    function greetOf(h) { return (h >= 5 && h < 11) ? 'おはようございます' : (h >= 11 && h < 17) ? 'こんにちは' : 'こんばんは'; }
+    function p2(n) { return (n < 10 ? '0' : '') + n; }
     function tickClock() {
       var n = new Date();
-      var p2 = function (x) { return (x < 10 ? '0' : '') + x; };
-      document.getElementById('clock').textContent = p2(n.getHours()) + ':' + p2(n.getMinutes()) + ':' + p2(n.getSeconds());
-      document.getElementById('date').textContent = n.getFullYear() + '年' + (n.getMonth()+1) + '月' + n.getDate() + '日（' + DOW[n.getDay()] + '）';
+      $('hh').textContent = p2(n.getHours()); $('mm').textContent = p2(n.getMinutes()); $('ss').textContent = p2(n.getSeconds());
+      $('date').textContent = n.getFullYear() + '年' + (n.getMonth()+1) + '月' + n.getDate() + '日 ' + DOW[n.getDay()] + '曜日';
+      $('greet').textContent = greetOf(n.getHours());
+      document.documentElement.setAttribute('data-tod', tod(n.getHours()));
     }
     tickClock(); setInterval(tickClock, 1000);
 
-    // ===== カメラ＆スキャン =====
-    function scanLoop() {
+    // ---- 結果表示（GASが #r= を付けて戻してきたら描画。無ければ通常フロー） ----
+    function tryRenderResult() {
+      var m = /[#&]r=([^&]+)/.exec(location.hash || '');
+      if (!m) return false;
+      var data; try { data = JSON.parse(decodeURIComponent(m[1])); } catch (e) { return false; }
+      var colors = { in:'#4ade80', out:'#60a5fa', dup:'#94a3b8', error:'#f87171' };
+      $('rcard').style.setProperty('--rc', colors[data.result] || 'var(--accent)');
+      $('rAvatar').textContent = data.result === 'error' ? '⚠️' : (data.result === 'dup' ? '🙆' : (data.emoji || '🙂'));
+      $('rMsg').textContent = data.message || '';
+      $('rTime').textContent = data.time || '';
+      $('rSub').textContent = data.workedText ? ('本日の勤務　' + data.workedText) : '';
+      var chips = $('rChips'); chips.textContent = '';
+      var g = data.gami;
+      function chip(t, cls) { var s = document.createElement('span'); s.className = 'r-chip' + (cls ? ' ' + cls : ''); s.textContent = t; chips.appendChild(s); }
+      if (g) {
+        if (g.rank != null) chip('本日' + g.rank + '番目の出勤！');
+        if (g.badge) chip(g.badge, 'badge'); else if (g.streak != null && g.streak > 0) chip(g.streak + '日連続');
+        if (g.monthDays != null) chip('今月' + g.monthDays + '日');
+      }
+      try { history.replaceState(null, '', location.pathname + location.search); } catch (e) {}
+      show('result');
+      beep(data.result);
+      clearTimeout(resultTimer);
+      resultTimer = setTimeout(goClock, 4200);
+      return true;
+    }
+    var resultTimer = null;
+
+    // ---- WebAudio 効果音（外部音源なし） ----
+    var audioCtx = null;
+    function unlockAudio() { try { audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)(); if (audioCtx.state === 'suspended') audioCtx.resume(); } catch (e) {} }
+    function tone(f, off, dur, type, peak) {
+      if (!audioCtx) return; var t = audioCtx.currentTime + off; var o = audioCtx.createOscillator(); var g = audioCtx.createGain();
+      o.type = type || 'sine'; o.frequency.setValueAtTime(f, t);
+      g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(peak || .3, t + .015); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+      o.connect(g).connect(audioCtx.destination); o.start(t); o.stop(t + dur + .05);
+    }
+    function beep(kind) {
+      if (kind === 'in') { tone(659,0,.14); tone(988,.13,.22); }
+      else if (kind === 'out') { tone(988,0,.14); tone(659,.13,.22); }
+      else if (kind === 'error') { tone(147,0,.45,'square',.22); }
+      else tone(523,0,.18,'sine',.16);
+    }
+
+    // ---- カメラ＆スキャン ----
+    var video = $('video'), canvas = $('canvas'), ctx = canvas.getContext('2d', { willReadFrequently: true });
+    var scanning = false, navigating = false, lastPayload = null, lastAt = 0, idleTimer = null;
+
+    function loop() {
       if (!scanning || navigating) return;
       if (video.readyState === video.HAVE_ENOUGH_DATA && video.videoWidth > 0) {
-        canvas.width = video.videoWidth;
-        canvas.height = video.videoHeight;
+        canvas.width = video.videoWidth; canvas.height = video.videoHeight;
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
         var img = ctx.getImageData(0, 0, canvas.width, canvas.height);
         var code = jsQR(img.data, img.width, img.height, { inversionAttempts: 'dontInvert' });
-        if (code && code.data) onScan(code.data);
+        if (code && code.data) return onScan(code.data);
       }
-      requestAnimationFrame(scanLoop);
+      requestAnimationFrame(loop);
     }
-
     function onScan(text) {
       var now = Date.now();
-      // 打刻から戻った直後に同じカードが映っていても連打しない（サーバー側にも60秒の二重打刻ガードあり）
-      if (text === lastPayload && (now - lastPayloadAt) < 8000) return;
-      if (!/^KINTAI:/.test(text)) return; // 無関係なQRは静かに無視してスキャン継続
-      lastPayload = text;
-      lastPayloadAt = now;
-      navigating = true;
-      goOverlay.classList.remove('hidden');
-      // トップレベル遷移なので Google のログインセッションがそのまま効く（fetch と違い CORS の制約を受けない）
-      location.href = GAS_EXEC + '?p=punchgo&k=' + encodeURIComponent(ACCESS_KEY) + '&qr=' + encodeURIComponent(text);
+      if (text === lastPayload && (now - lastAt) < 8000) return requestAnimationFrame(loop);
+      if (!/^KINTAI:/.test(text)) return requestAnimationFrame(loop); // 無関係なQRは無視して継続
+      lastPayload = text; lastAt = now; navigating = true; scanning = false;
+      show('proc');
+      // トップレベル遷移＝Googleセッションが効く。GASが #r= 付きで戻す（未対応でも従来通り動く）
+      location.href = GAS_EXEC + '?p=punchgo&k=' + encodeURIComponent(ACCESS_KEY) + '&qr=' + encodeURIComponent(text) + '&back=' + encodeURIComponent(location.origin + location.pathname);
     }
-
-    async function startCamera(fromGesture) {
-      camError.classList.add('hidden');
+    async function startCamera(fromTap) {
+      unlockAudio();
       try {
-        if (video.srcObject) {
-          video.srcObject.getTracks().forEach(function (t) { t.stop(); });
-          video.srcObject = null;
-        }
+        if (video.srcObject) { video.srcObject.getTracks().forEach(function (t) { t.stop(); }); video.srcObject = null; }
         var stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: camFacing } });
-        video.srcObject = stream;
-        video.classList.toggle('mirror', camFacing === 'user');
+        video.srcObject = stream; video.classList.toggle('mirror', camFacing === 'user');
         try { await video.play(); } catch (e) {}
-        startOverlay.classList.add('hidden');
-        scanning = true;
-        navigating = false;
-        requestAnimationFrame(scanLoop);
+        show('scan'); scanning = true; navigating = false; requestAnimationFrame(loop);
+        clearTimeout(idleTimer); idleTimer = setTimeout(goClock, 30000); // 30秒無操作で時計に戻る
         return true;
       } catch (err) {
-        if (fromGesture) {
-          camError.textContent = 'カメラを起動できません。設定アプリ → Safari → カメラ を「許可」にして再読み込みしてください';
-          camError.classList.remove('hidden');
-        }
-        startOverlay.classList.remove('hidden');
-        return false;
+        $('startErr').style.display = 'block';
+        $('startErr').innerHTML = 'カメラを起動できません。設定 → Safari → カメラ を「許可」にして再読み込みしてください';
+        show('start'); return false;
       }
     }
+    function goClock() {
+      scanning = false; clearTimeout(idleTimer); clearTimeout(resultTimer);
+      if (video.srcObject) { video.srcObject.getTracks().forEach(function (t) { t.stop(); }); video.srcObject = null; } // カメラOFF
+      show('clock');
+    }
+    function goScan() { clearTimeout(resultTimer); startCamera(true); }
 
-    startBtn.addEventListener('click', function () { startCamera(true); });
-
-    // イン/アウトカメラ切替（選択は端末に記憶）
-    document.getElementById('flipBtn').addEventListener('click', function () {
+    // タップで打刻開始（時計・結果画面のどこをタップしてもスキャンへ）
+    views.clock.addEventListener('click', goScan);
+    views.result.addEventListener('click', goScan);
+    $('startBtn').addEventListener('click', function (e) { e.stopPropagation(); startCamera(true); });
+    $('toClock').addEventListener('click', function (e) { e.stopPropagation(); goClock(); });
+    $('flip').addEventListener('click', function (e) {
+      e.stopPropagation();
       camFacing = (camFacing === 'user') ? 'environment' : 'user';
-      try { localStorage.setItem(CAM_STORE, camFacing); } catch (e) {}
+      try { localStorage.setItem(CAM_STORE, camFacing); } catch (e2) {}
       startCamera(true);
     });
 
-    // 打刻結果ページから history.back() で戻ってきたとき（bfcache）にスキャンを自動再開
+    // GAS結果ページから history.back() で戻った場合もカメラを止めて時計へ
     window.addEventListener('pageshow', function (ev) {
       navigating = false;
-      goOverlay.classList.add('hidden');
-      if (ev.persisted) {
-        if (video.srcObject && video.srcObject.active) {
-          scanning = true;
-          requestAnimationFrame(scanLoop);
-        } else {
-          startCamera(false); // ストリームが死んでいたら再取得（許可済みなら無操作で復帰）
-        }
-      }
+      if (tryRenderResult()) return;
+      if (ev.persisted) goClock();
     });
 
-    // ===== 起動 =====
-    if (!ACCESS_KEY) {
-      startOverlay.classList.add('hidden');
-      setupOverlay.classList.remove('hidden');
-    } else {
-      // 許可済み端末なら自動起動を試み、ダメなら「タップして開始」を出す
-      startCamera(false);
-    }
+    // ---- 起動 ----
+    if (!ACCESS_KEY) { show('setup'); }
+    else if (!tryRenderResult()) { goClock(); } // 既定は時計待機（カメラOFF）。初回タップで許可＆起動
   </script>
 </body>
 </html>
