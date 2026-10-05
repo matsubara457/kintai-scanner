@@ -1,16 +1,15 @@
 <!DOCTYPE html>
-<html lang="ja">
+<html lang="ja" data-tod="night">
 <head>
 <meta charset="UTF-8" />
+<!-- 許すのは同一オリジンのスクリプトと通信だけ。インラインのスクリプトは動かさない（script-src 'self'）。Google Fonts も使わない -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'" />
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
 <meta name="referrer" content="no-referrer" />
 <meta name="mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 <title>ナハトX勤怠</title>
-<link rel="preconnect" href="https://fonts.googleapis.com" />
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link href="https://fonts.googleapis.com/css2?family=Sora:wght@200;300;500;700&family=Zen+Kaku+Gothic+New:wght@500;700;900&display=swap" rel="stylesheet" />
 <style>
   /* ===== 時間帯で変わるパレット（常時オンの時計が「いまが何時ごろか」を色で語る） ===== */
   :root {
@@ -18,19 +17,31 @@
     --ink: #ffffff; --dim: rgba(255,255,255,.62); --faint: rgba(255,255,255,.30);
     --card: rgba(255,255,255,.07); --card-line: rgba(255,255,255,.14);
     --grad-shift: 22s;
+    --vh: 1vh;
+    /* 白地のQR（余白込み）の一辺。横向きは画面の高さの6割前後、幅が足りない画面では幅で頭打ち */
+    --qr: min(calc(var(--vh) * 60), 46vw);
+    --pad: clamp(14px, calc(var(--vh) * 2.4), 26px);
+    /* 外部フォントは使わない（読み込み待ちで起動が遅れたり、4:00の再読み込みの成否が外部サービスに左右されたりするため） */
+    --font-text: "Hiragino Sans", "Hiragino Kaku Gothic ProN", system-ui, sans-serif;
+    --font-digits: -apple-system, "SF Pro Display", system-ui, sans-serif;
   }
+  @supports (height: 1dvh) { :root { --vh: 1dvh; } }
+  /* 縦向き: 上に時計、下にQR */
+  @media (orientation: portrait) { :root { --qr: min(calc(var(--vh) * 40), 76vw); } }
   :root[data-tod="dawn"] { --g1:#43305f; --g2:#c68a77; --accent:#ffd0a8; --accent-soft:rgba(255,208,168,.18); }
   :root[data-tod="day"]  { --g1:#1f4a78; --g2:#5aa6cf; --accent:#a6f2df; --accent-soft:rgba(166,242,223,.18); }
   :root[data-tod="dusk"] { --g1:#5f3550; --g2:#d98a4e; --accent:#ffd27a; --accent-soft:rgba(255,210,122,.18); }
   :root[data-tod="night"]{ --g1:#0d1526; --g2:#233960; --accent:#6fd6ff; --accent-soft:rgba(111,214,255,.16); }
 
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  [hidden] { display: none !important; }
   html, body {
     margin: 0; height: 100%; min-height: 100dvh; overflow: hidden;
     background: var(--g1); color: var(--ink);
-    font-family: 'Zen Kaku Gothic New', 'Noto Sans JP', sans-serif;
-    -webkit-user-select: none; user-select: none;
-    -webkit-font-smoothing: antialiased;
+    font-family: var(--font-text);
+    -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
+    -webkit-font-smoothing: antialiased; -webkit-text-size-adjust: 100%; text-size-adjust: 100%;
+    touch-action: manipulation;
   }
   body {
     position: relative;
@@ -50,358 +61,144 @@
     100% { transform: translate(-8%, -6%) scale(1.05); }
   }
 
-  .stage { position: relative; z-index: 1; height: 100dvh; }
-  .view { position: absolute; inset: 0; display: flex; flex-direction: column;
-    align-items: center; justify-content: center; text-align: center;
-    padding: max(4vh, env(safe-area-inset-top)) 6vw max(4vh, env(safe-area-inset-bottom));
-    opacity: 0; visibility: hidden; transition: opacity .5s ease; }
-  .view.active { opacity: 1; visibility: visible; }
+  /* ===== 画面全体（焼き付き対策で1分ごとに数pxずらす対象） ===== */
+  .shift { position: fixed; inset: 0; z-index: 1; }
+  .brand { position: absolute; top: max(1.1rem, env(safe-area-inset-top)); left: 0; right: 0;
+    text-align: center; font-size: .74rem; letter-spacing: .45em; color: var(--faint); }
+  .brand b { color: var(--accent); font-weight: 700; }
 
-  /* ===== 待機＝時計 ===== */
-  .brand { position: fixed; top: max(1.4rem, env(safe-area-inset-top)); left: 0; right: 0;
-    text-align: center; font-size: .74rem; letter-spacing: .45em; color: var(--faint);
-    text-transform: uppercase; z-index: 2; }
-  .greet { font-size: clamp(1rem, 3.2vw, 1.7rem); color: var(--dim); font-weight: 500;
-    letter-spacing: .06em; margin-bottom: clamp(.4rem, 1.5vh, 1rem); }
-  .clock { font-family: 'Sora', sans-serif; font-weight: 200; line-height: .9;
-    font-size: clamp(5rem, 26vw, 20rem); letter-spacing: -.01em;
-    font-variant-numeric: tabular-nums; display: flex; align-items: baseline; justify-content: center; }
+  /* 横向き: 左に時計・右にQR / 縦向き: 上に時計・下にQR */
+  .stage { position: absolute; inset: 0; display: grid; align-items: center; justify-items: center;
+    grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: minmax(0, 1fr); column-gap: 3vw;
+    padding: calc(max(1.1rem, env(safe-area-inset-top)) + 1.7rem) max(4vw, env(safe-area-inset-right))
+             max(2.4vh, env(safe-area-inset-bottom)) max(4vw, env(safe-area-inset-left)); }
+  @media (orientation: portrait) {
+    .stage { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; column-gap: 0; row-gap: 2vh; }
+  }
+
+  /* ===== 時計 ===== */
+  /* 行の高さ(1fr)いっぱいに広げ、その寸法（cqw/cqh）で時計の大きさを決める。縦向きでもQRの残りの高さに収まる */
+  .clock-pane { width: 100%; height: 100%; min-width: 0; min-height: 0; container-type: size;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
+  .greet { font-size: clamp(1rem, 2.8vw, 1.7rem); font-size: clamp(1rem, min(5.4cqw, calc(var(--vh) * 3.2)), 1.7rem);
+    color: var(--dim); font-weight: 500; letter-spacing: .06em; margin-bottom: clamp(.4rem, 1.5vh, 1rem); }
+  .clock { font-family: var(--font-digits); font-weight: 200; line-height: .9;
+    font-size: min(11vw, calc(var(--vh) * 26)); font-size: min(27cqw, calc((100cqh - 7.5rem) / .95));   /* 前者はコンテナ単位が使えない環境向けの控え */
+    letter-spacing: -.01em; font-variant-numeric: tabular-nums; white-space: nowrap;
+    display: flex; align-items: baseline; justify-content: center; }
   .clock .colon { animation: blink 2s steps(1) infinite; margin: 0 .06em; font-weight: 200; }
   .clock .sec { font-size: .26em; font-weight: 300; color: var(--accent); align-self: flex-start;
     margin-left: .18em; margin-top: .4em; font-variant-numeric: tabular-nums; letter-spacing: .02em; }
   @keyframes blink { 0%,50% { opacity: 1; } 51%,100% { opacity: .28; } }
   .date { margin-top: clamp(.6rem, 2vh, 1.4rem); font-size: clamp(1rem, 3.4vw, 1.9rem);
+    font-size: clamp(1rem, min(4.6cqw, calc(var(--vh) * 2.8)), 1.9rem);
     color: var(--dim); font-weight: 500; letter-spacing: .12em; }
-  .tap-hint { margin-top: clamp(1.6rem, 5vh, 3.4rem); display: inline-flex; align-items: center; gap: .6em;
-    padding: .8em 1.7em; border-radius: 999px; background: var(--card); border: 1px solid var(--card-line);
-    color: var(--ink); font-size: clamp(.85rem, 2.4vw, 1.15rem); font-weight: 700; letter-spacing: .04em;
-    -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
-    animation: breathe 3.4s ease-in-out infinite; }
-  .tap-hint .dot { width: .55em; height: .55em; border-radius: 50%; background: var(--accent);
-    box-shadow: 0 0 12px var(--accent); }
-  @keyframes breathe { 0%,100% { transform: translateY(0); opacity: .92; } 50% { transform: translateY(-4px); opacity: 1; } }
 
-  /* ===== スキャン ===== */
-  .scan-title { font-size: clamp(1.1rem, 3.6vw, 1.7rem); font-weight: 700; margin-bottom: 1.4rem; letter-spacing: .04em; }
-  .frame { position: relative; width: min(86vw, 460px); height: min(56vh, 460px);
-    background: #000; border-radius: 30px; overflow: hidden; border: 1px solid var(--card-line);
-    box-shadow: 0 30px 70px rgba(0,0,0,.45); }
-  .frame video { width: 100%; height: 100%; object-fit: cover; display: block; pointer-events: none; }
-  .frame video.mirror { transform: scaleX(-1); }
-  .reticle { position: absolute; inset: 14% 15%; pointer-events: none; }
-  .corner { position: absolute; width: 34px; height: 34px; border: 3px solid var(--accent);
-    filter: drop-shadow(0 0 8px var(--accent)); }
-  .corner.tl{top:0;left:0;border-right:0;border-bottom:0;border-top-left-radius:12px}
-  .corner.tr{top:0;right:0;border-left:0;border-bottom:0;border-top-right-radius:12px}
-  .corner.bl{bottom:0;left:0;border-right:0;border-top:0;border-bottom-left-radius:12px}
-  .corner.br{bottom:0;right:0;border-left:0;border-top:0;border-bottom-right-radius:12px}
-  .laser { position: absolute; left: 4%; right: 4%; top: 6%; height: 2px;
-    background: linear-gradient(90deg, transparent, var(--accent), transparent);
-    box-shadow: 0 0 16px 3px var(--accent-soft); animation: laser 2.6s ease-in-out infinite; }
-  @keyframes laser { 0%{top:6%}50%{top:90%}100%{top:6%} }
-  .scan-actions { margin-top: 1.6rem; display: flex; gap: 12px; }
-  .pill { font-family: inherit; font-weight: 700; font-size: 1rem; padding: .7em 1.5em; border-radius: 999px;
-    border: 1px solid var(--card-line); background: var(--card); color: var(--ink); cursor: pointer;
-    -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); display: inline-flex; align-items: center; gap: .5em; }
-  .pill.ghost { background: transparent; color: var(--dim); }
+  /* 小さなバッジ（オフライン・時計のずれ）。時計の並びに入れないので、出入りで何も動かない。
+     横向き: 左上に縦に積む（左の列は時計の上が空いていて、右のQRカードにも届かない）。
+     縦向き: 画面の幅いっぱいに積む。ブランド名・あいさつの行を使うので、バッジが出ている間だけその2つを隠す
+     （場所は空けたまま＝時計・日付・QRカードは動かず、バッジも時計の数字には届かない） */
+  .badges { position: absolute; top: max(.9rem, env(safe-area-inset-top)); left: max(1.2rem, env(safe-area-inset-left));
+    max-width: calc(50vw - 6.5rem); display: flex; flex-direction: column; align-items: flex-start; gap: .4rem; }
+  .badge { display: none; align-items: flex-start; gap: .55em; padding: .38em 1em; border-radius: 1rem;
+    background: var(--card); border: 1px solid var(--card-line);
+    color: var(--dim); font-size: clamp(.72rem, calc(var(--vh) * 1.8), .95rem); font-weight: 700; letter-spacing: .03em; line-height: 1.5; }
+  .badge.on { display: inline-flex; }
+  .badge::before { content: ''; width: .6em; height: .6em; margin-top: .55em; border-radius: 50%; background: #ffc857; flex: none; }
+  .badge.skew { color: var(--ink); }
+  .badge.skew::before { background: #ff8a65; }
+  @media (orientation: portrait) {
+    .badges { right: max(1.2rem, env(safe-area-inset-right)); max-width: none; align-items: center; }
+    .badge { font-size: clamp(.68rem, calc(var(--vh) * 1.25), .8rem); }
+    .shift:has(.badge.on) :is(.brand, .greet) { visibility: hidden; }
+  }
 
-  /* ===== 結果 ===== */
-  .result-card { width: min(88vw, 560px); padding: clamp(2.4rem, 7vh, 4rem) clamp(1.6rem, 8vw, 3.5rem);
-    border-radius: 40px; background: var(--card); border: 2px solid var(--rc, var(--accent));
-    box-shadow: 0 0 90px -12px var(--rc, var(--accent)); -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px);
-    animation: pop .55s cubic-bezier(.2,.9,.3,1.3); }
-  @keyframes pop { from { opacity:0; transform: scale(.82) translateY(14px); } to { opacity:1; transform: none; } }
-  .r-avatar { font-size: clamp(4.5rem, 20vw, 9rem); line-height: 1; filter: drop-shadow(0 8px 24px rgba(0,0,0,.3)); }
-  .r-msg { font-size: clamp(1.4rem, 5.5vw, 2.6rem); font-weight: 900; margin-top: 1rem; letter-spacing: .01em; }
-  .r-time { font-family: 'Sora', sans-serif; font-size: clamp(2rem, 8vw, 3.6rem); font-weight: 300;
-    color: var(--rc, var(--accent)); margin-top: .3rem; font-variant-numeric: tabular-nums; }
-  .r-sub { font-size: clamp(1rem, 3.4vw, 1.4rem); color: var(--dim); margin-top: .5rem; }
-  .r-chips { display: flex; flex-wrap: wrap; gap: .5rem; justify-content: center; margin-top: 1.5rem; }
-  .r-chip { background: rgba(255,255,255,.1); border: 1px solid var(--card-line); color: var(--ink);
-    padding: .5rem 1.1rem; border-radius: 999px; font-size: clamp(.85rem, 2.4vw, 1.15rem); font-weight: 700; }
-  .r-chip.badge { background: linear-gradient(135deg, rgba(255,213,74,.28), rgba(255,213,74,.06)); border-color: #ffd54a; color: #ffe6a3; }
+  /* ===== QRカード（常時オンなので、背面が動く backdrop-filter は使わず負荷を抑える） ===== */
+  .qr-card { width: calc(var(--qr) + 2 * var(--pad) + 2px); padding: var(--pad); border-radius: 36px;   /* +2px は枠線の分（border-box） */
+    background: var(--card); border: 1px solid var(--card-line); box-shadow: 0 30px 70px rgba(0,0,0,.35);
+    container-type: inline-size;   /* 中の文字をカードの幅に合わせて決める（cqw） */
+    display: flex; flex-direction: column; align-items: stretch; gap: clamp(.5rem, calc(var(--vh) * 1.5), 1rem); }
+  /* QRは常に白地に黒（時間帯の配色に左右されない）。余白は canvas 側で4モジュール分、台座の白がさらに足される */
+  .qr-frame { width: var(--qr); height: var(--qr); background: #fff; border-radius: clamp(14px, calc(var(--vh) * 3), 26px);
+    display: grid; place-items: center; overflow: hidden; }
+  .qr-frame canvas { display: block; max-width: 100%; max-height: 100%; image-rendering: pixelated; }
+  .qr-bar { height: 6px; border-radius: 3px; background: rgba(255,255,255,.14); overflow: hidden; }
+  .qr-bar > i { display: block; width: 100%; height: 100%; border-radius: 3px; background: var(--accent);
+    box-shadow: 0 0 10px var(--accent-soft); transform-origin: left center; transform: scaleX(1);
+    transition: transform 1s linear; }
+  .qr-cta { text-align: center; font-weight: 900; letter-spacing: .04em; margin-top: .1rem; white-space: nowrap;
+    font-size: clamp(1rem, calc(var(--vh) * 2.7), 1.6rem); font-size: clamp(1rem, min(calc(var(--vh) * 2.7), 5.4cqw), 1.6rem); }   /* 1行に収める */
+  .qr-note { text-align: center; color: var(--dim); font-weight: 500; line-height: 1.7;
+    font-size: clamp(.72rem, calc(var(--vh) * 1.75), .98rem); }
+  /* Safari のタブで開いているときだけ出す案内（ホーム画面アプリでは出さない） */
+  .qr-home { margin-top: .45rem; color: var(--accent); font-weight: 700; }
+  .qr-home .nb { display: inline-block; }   /* 句の途中（「アドレス欄」など）で折り返さない */
 
-  /* ===== 起動/エラー/セットアップ ===== */
-  .big-btn { font-family: inherit; font-size: clamp(1.1rem, 4vw, 1.6rem); font-weight: 900; color: #06211d;
-    background: linear-gradient(135deg, var(--accent), #ffffff); border: none; padding: 1.05em 2.6em; border-radius: 999px;
-    cursor: pointer; box-shadow: 0 0 50px var(--accent-soft); animation: breathe 3s ease-in-out infinite; }
-  .ov-icon { font-size: clamp(2.6rem, 9vw, 4.4rem); margin-bottom: .8rem; }
-  .ov-title { font-size: clamp(1rem, 3.4vw, 1.4rem); color: var(--dim); letter-spacing: .1em; margin-bottom: 2rem; }
-  .err { color: #ffb4ae; font-weight: 700; line-height: 1.9; max-width: 30rem; }
-  .spinner { width: 58px; height: 58px; border-radius: 50%; border: 5px solid rgba(255,255,255,.14);
-    border-top-color: var(--accent); animation: spin .8s linear infinite; }
-  @keyframes spin { to { transform: rotate(360deg); } }
-  .proc-text { margin-top: 1.3rem; color: var(--dim); letter-spacing: .14em; }
-
-  .flip { position: absolute; top: 14px; right: 14px; z-index: 3; width: 46px; height: 46px; border-radius: 50%;
-    background: rgba(0,0,0,.4); border: 1px solid var(--card-line); color: #fff; font-size: 1.3rem; cursor: pointer;
-    -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); display: flex; align-items: center; justify-content: center; }
+  /* 案内・エラー（QRの代わりに同じ場所へ出す） */
+  .qr-msg { display: none; width: var(--qr); min-height: calc(var(--qr) * .62); padding: 1rem .6rem;
+    flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: .9rem; }
+  .qr-msg .icon { font-size: clamp(2.4rem, calc(var(--vh) * 7), 4rem); line-height: 1; }
+  .qr-msg .title { font-weight: 900; line-height: 1.5; font-size: clamp(1.05rem, calc(var(--vh) * 2.8), 1.7rem); }
+  .qr-msg .body, .qr-msg .hint { font-weight: 500; line-height: 1.85; max-width: 34em; line-break: strict; text-wrap: balance; }
+  .qr-msg .body { color: var(--dim); font-size: clamp(.85rem, calc(var(--vh) * 2), 1.15rem); }
+  .qr-msg .hint { color: rgba(255,255,255,.52); font-size: clamp(.78rem, calc(var(--vh) * 1.75), 1rem); margin-top: -.3rem; }
+  .qr-msg .body:empty, .qr-msg .hint:empty { display: none; }
+  .qr-card.is-msg .qr-msg { display: flex; }
+  .qr-card.is-msg .qr-frame, .qr-card.is-msg .qr-bar, .qr-card.is-msg .qr-cta, .qr-card.is-msg .qr-note { display: none; }
+  .qr-card.is-err .qr-msg .title { color: #ffb4ae; }
 
   @media (prefers-reduced-motion: reduce) {
-    .aura, .clock .colon, .tap-hint, .laser, .big-btn, .result-card { animation: none; }
-    body, .view { transition: none; }
+    .aura, .clock .colon { animation: none; }
+    body { transition: none; }
+    .qr-bar > i { transition: none; }
   }
 </style>
 </head>
-<body data-tod="night">
+<body>
   <div class="aura"></div>
-  <div class="brand">ナハト<span style="color:var(--accent);font-weight:700">X</span>勤怠</div>
 
-  <div class="stage" id="stage">
+  <div class="shift" id="shift">
+    <div class="brand">ナハト<b>X</b>勤怠</div>
+    <div class="badges">
+      <div class="badge offline" id="offline">iPadはオフライン（QRの表示は続けます）</div>
+      <div class="badge skew" id="skew"></div>
+    </div>
 
-    <!-- 待機：時計（カメラOFF） -->
-    <section class="view" id="v-clock">
-      <div class="greet" id="greet">こんばんは</div>
-      <div class="clock">
-        <span id="hh">--</span><span class="colon">:</span><span id="mm">--</span><span class="sec" id="ss">--</span>
-      </div>
-      <div class="date" id="date">----年--月--日 -曜日</div>
-      <div class="tap-hint"><span class="dot"></span>画面をタップして打刻</div>
-    </section>
+    <main class="stage">
+      <!-- 左（縦向きは上）: 時計 -->
+      <section class="clock-pane">
+        <div class="greet" id="greet">こんばんは</div>
+        <div class="clock">
+          <span id="hh">--</span><span class="colon">:</span><span id="mm">--</span><span class="sec" id="ss">--</span>
+        </div>
+        <div class="date" id="date">----年--月--日 -曜日</div>
+      </section>
 
-    <!-- スキャン：カメラON -->
-    <section class="view" id="v-scan">
-      <div class="scan-title">QRコードをかざしてください</div>
-      <div class="frame">
-        <button type="button" class="flip" id="flip" aria-label="カメラ切替">🔄</button>
-        <video id="video" playsinline webkit-playsinline autoplay muted></video>
-        <canvas id="canvas" hidden></canvas>
-        <div class="reticle"><span class="corner tl"></span><span class="corner tr"></span><span class="corner bl"></span><span class="corner br"></span><span class="laser"></span></div>
-      </div>
-      <div class="scan-actions">
-        <button type="button" class="pill ghost" id="toClock">← 時計に戻る</button>
-      </div>
-    </section>
-
-    <!-- 処理中 -->
-    <section class="view" id="v-proc">
-      <div class="spinner"></div>
-      <div class="proc-text">打刻しています…</div>
-    </section>
-
-    <!-- 結果（#r= フラグメントから描画。GASからの復帰時に表示） -->
-    <section class="view" id="v-result">
-      <div class="result-card" id="rcard">
-        <div class="r-avatar" id="rAvatar">🙂</div>
-        <div class="r-msg" id="rMsg"></div>
-        <div class="r-time" id="rTime"></div>
-        <div class="r-sub" id="rSub"></div>
-        <div class="r-chips" id="rChips"></div>
-      </div>
-    </section>
-
-    <!-- 起動（カメラ許可＝ユーザー操作が要る初回のみ） -->
-    <section class="view" id="v-start">
-      <div class="ov-icon">📷</div>
-      <div class="err" id="startErr" style="display:none"></div>
-      <button type="button" class="big-btn" id="startBtn">カメラを許可して開始</button>
-    </section>
-
-    <!-- 未セットアップ -->
-    <section class="view" id="v-setup">
-      <div class="ov-icon">🔑</div>
-      <div class="err">この端末はまだセットアップされていません<br><span style="color:var(--dim);font-weight:400;font-size:.9em">管理者から受け取ったセットアップ用URL（#k= 付き）で開き直してください</span></div>
-    </section>
-
+      <!-- 右（縦向きは下）: QRのカード -->
+      <section class="qr-card" id="qrCard">
+        <div class="qr-frame" id="qrFrame">
+          <canvas id="qr" role="img" aria-label="30秒ごとに変わる打刻用のQRコード"></canvas>
+        </div>
+        <div class="qr-bar" aria-hidden="true"><i id="bar"></i></div>
+        <div class="qr-cta">スマホのカメラで読み取ってください</div>
+        <div class="qr-note">
+          <div id="noteCut"></div>
+          <div>読み取ったあと、SmartHRで打刻</div>
+          <div>はじめての人は会社のGoogleアカウントでログイン</div>
+          <div class="qr-home" id="homeNote" hidden><span class="nb">ホーム画面に追加して、アイコンから開いてください</span><span class="nb">（アドレス欄に鍵が残らないようにするため）</span></div>
+        </div>
+        <div class="qr-msg" id="qrMsg">
+          <div class="icon" id="msgIcon"></div>
+          <div class="title" id="msgTitle"></div>
+          <div class="body" id="msgBody"></div>
+          <div class="hint" id="msgHint"></div>
+        </div>
+      </section>
+    </main>
   </div>
 
-  <!-- jsQR は同梱（外部CDNに依存しない＝ネット経路が1つ減り、毎朝動く確実性が上がる） -->
-  <script src="jsQR.js"></script>
-  <script>
-    // 打刻の確定・認証はすべて GAS 側（Googleドメイン+ACCESS_KEY+個人QRトークン）。
-    // このページは「時計として常駐し、タップされたらQRを読んで GAS へ渡す」だけ。秘密は持たない。
-    var GAS_EXEC = 'https://script.google.com/a/macros/nahato.co.jp/s/AKfycby9JORQVA2E4_-ME2N73agDVhMAi1poWEg9Ju62Kl6o-KtVIZ_4jzkRzcMbr5pVjeFS_g/exec';
-    var KEY_STORE = 'kintai-scanner-key', CAM_STORE = 'kintai-scanner-cam';
-
-    var $ = function (id) { return document.getElementById(id); };
-    var views = { clock:$('v-clock'), scan:$('v-scan'), proc:$('v-proc'), result:$('v-result'), start:$('v-start'), setup:$('v-setup') };
-    function show(name) { for (var k in views) views[k].classList.toggle('active', k === name); }
-
-    // ---- 鍵とカメラ向き（初回は #k= / #cam= から取り込み、以後は端末に保存） ----
-    function loadKey() {
-      var key = null; try { key = localStorage.getItem(KEY_STORE); } catch (e) {}
-      var m = /[#&]k=([A-Za-z0-9_-]{8,64})/.exec(location.hash || '');
-      if (m) { key = m[1]; try { localStorage.setItem(KEY_STORE, key); } catch (e) {} }
-      return key;
-    }
-    var ACCESS_KEY = loadKey();
-    var camFacing = 'environment';
-    try { camFacing = localStorage.getItem(CAM_STORE) || 'environment'; } catch (e) {}
-    var cm = /[#&]cam=(front|back)/.exec(location.hash || '');
-    if (cm) { camFacing = cm[1] === 'front' ? 'user' : 'environment'; try { localStorage.setItem(CAM_STORE, camFacing); } catch (e) {} }
-
-    // ---- 時計＋時間帯パレット ----
-    var DOW = ['日','月','火','水','木','金','土'];
-    function tod(h) { return h < 5 ? 'night' : h < 9 ? 'dawn' : h < 17 ? 'day' : h < 20 ? 'dusk' : 'night'; }
-    function greetOf(h) { return (h >= 5 && h < 11) ? 'おはようございます' : (h >= 11 && h < 17) ? 'こんにちは' : 'こんばんは'; }
-    function p2(n) { return (n < 10 ? '0' : '') + n; }
-    function tickClock() {
-      var n = new Date();
-      $('hh').textContent = p2(n.getHours()); $('mm').textContent = p2(n.getMinutes()); $('ss').textContent = p2(n.getSeconds());
-      $('date').textContent = n.getFullYear() + '年' + (n.getMonth()+1) + '月' + n.getDate() + '日 ' + DOW[n.getDay()] + '曜日';
-      $('greet').textContent = greetOf(n.getHours());
-      document.documentElement.setAttribute('data-tod', tod(n.getHours()));
-    }
-    tickClock(); setInterval(tickClock, 1000);
-
-    // ---- 結果表示（GASが #r= を付けて戻してきたら描画。無ければ通常フロー） ----
-    function tryRenderResult() {
-      var m = /[#&]r=([^&]+)/.exec(location.hash || '');
-      if (!m) return false;
-      var data; try { data = JSON.parse(decodeURIComponent(m[1])); } catch (e) { return false; }
-      var colors = { in:'#4ade80', out:'#60a5fa', dup:'#94a3b8', error:'#f87171' };
-      $('rcard').style.setProperty('--rc', colors[data.result] || 'var(--accent)');
-      $('rAvatar').textContent = data.result === 'error' ? '⚠️' : (data.result === 'dup' ? '🙆' : (data.emoji || '🙂'));
-      $('rMsg').textContent = data.message || '';
-      $('rTime').textContent = data.time || '';
-      $('rSub').textContent = data.workedText ? ('本日の勤務　' + data.workedText) : '';
-      var chips = $('rChips'); chips.textContent = '';
-      var g = data.gami;
-      function chip(t, cls) { var s = document.createElement('span'); s.className = 'r-chip' + (cls ? ' ' + cls : ''); s.textContent = t; chips.appendChild(s); }
-      if (g) {
-        if (g.rank != null) chip('本日' + g.rank + '番目の出勤！');
-        if (g.badge) chip(g.badge, 'badge'); else if (g.streak != null && g.streak > 0) chip(g.streak + '日連続');
-        if (g.monthDays != null) chip('今月' + g.monthDays + '日');
-      }
-      try { history.replaceState(null, '', location.pathname + location.search); } catch (e) {}
-      show('result');
-      beep(data.result);
-      clearTimeout(resultTimer);
-      resultTimer = setTimeout(goClock, 4200);
-      return true;
-    }
-    var resultTimer = null;
-
-    // 端末側で完結するエラー表示（通信不能・初期化失敗）。必ず数秒で時計へ戻し、無人端末が固まらないようにする
-    function showLocalError(icon, msg, sub) {
-      navigating = false; scanning = false;
-      $('rcard').style.setProperty('--rc', '#f87171');
-      $('rAvatar').textContent = icon;
-      $('rMsg').textContent = msg;
-      $('rTime').textContent = '';
-      $('rSub').textContent = sub || '';
-      $('rChips').textContent = '';
-      show('result'); beep('error');
-      clearTimeout(resultTimer);
-      resultTimer = setTimeout(goClock, 5000);
-    }
-
-    // 打刻署名用の SHA-256（16進）。鍵とQRトークンをURLに載せないための土台
-    async function sha256Hex(str) {
-      var buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
-      return Array.prototype.map.call(new Uint8Array(buf), function (b) {
-        return ('0' + b.toString(16)).slice(-2);
-      }).join('');
-    }
-
-    // ---- WebAudio 効果音（外部音源なし） ----
-    var audioCtx = null;
-    function unlockAudio() { try { audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)(); if (audioCtx.state === 'suspended') audioCtx.resume(); } catch (e) {} }
-    function tone(f, off, dur, type, peak) {
-      if (!audioCtx) return; var t = audioCtx.currentTime + off; var o = audioCtx.createOscillator(); var g = audioCtx.createGain();
-      o.type = type || 'sine'; o.frequency.setValueAtTime(f, t);
-      g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(peak || .3, t + .015); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-      o.connect(g).connect(audioCtx.destination); o.start(t); o.stop(t + dur + .05);
-    }
-    function beep(kind) {
-      if (kind === 'in') { tone(659,0,.14); tone(988,.13,.22); }
-      else if (kind === 'out') { tone(988,0,.14); tone(659,.13,.22); }
-      else if (kind === 'error') { tone(147,0,.45,'square',.22); }
-      else tone(523,0,.18,'sine',.16);
-    }
-
-    // ---- カメラ＆スキャン ----
-    var video = $('video'), canvas = $('canvas'), ctx = canvas.getContext('2d', { willReadFrequently: true });
-    var scanning = false, navigating = false, lastPayload = null, lastAt = 0, idleTimer = null;
-
-    function loop() {
-      if (!scanning || navigating) return;
-      if (typeof jsQR !== 'function') {  // 読み込み失敗時、カメラは点いたまま無反応…を避ける
-        return showLocalError('⚠️', 'QR読み取りを初期化できませんでした', 'ページを再読み込みしてください');
-      }
-      if (video.readyState === video.HAVE_ENOUGH_DATA && video.videoWidth > 0) {
-        canvas.width = video.videoWidth; canvas.height = video.videoHeight;
-        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-        var img = ctx.getImageData(0, 0, canvas.width, canvas.height);
-        var code = jsQR(img.data, img.width, img.height, { inversionAttempts: 'dontInvert' });
-        if (code && code.data) return onScan(code.data);
-      }
-      requestAnimationFrame(loop);
-    }
-    async function onScan(text) {
-      var now = Date.now();
-      if (text === lastPayload && (now - lastAt) < 8000) return requestAnimationFrame(loop);
-      if (!/^KINTAI:/.test(text)) return requestAnimationFrame(loop); // 無関係なQRは無視して継続
-      lastPayload = text; lastAt = now; navigating = true; scanning = false;
-
-      // 通信不能なら遷移しない。飛ばした先がSafariのエラーページだと無人端末が「壊れている」状態で固まる
-      if (navigator.onLine === false) {
-        return showLocalError('📡', 'ネットワークに接続されていません', '通信が戻ってから、もう一度かざしてください');
-      }
-      show('proc');
-
-      var back = encodeURIComponent(location.origin + location.pathname);
-      var url = null;
-      var parts = /^KINTAI:([A-Za-z0-9_-]{1,32}):([a-f0-9]{32})$/.exec(text);
-      if (parts && window.crypto && window.crypto.subtle) {
-        // 署名方式: 鍵もQRトークンもURLに載せない（サーバーログ・端末履歴に残さない）
-        // h = SHA256(uid:token:t:ACCESS_KEY) をサーバーが再計算して照合。時限＋使い捨て
-        try {
-          var t = Date.now();
-          var h = await sha256Hex(parts[1] + ':' + parts[2] + ':' + t + ':' + ACCESS_KEY);
-          url = GAS_EXEC + '?p=punchgo&uid=' + encodeURIComponent(parts[1]) + '&t=' + t + '&h=' + h + '&back=' + back;
-        } catch (e) { url = null; }
-      }
-      if (!url) {  // crypto.subtle が無い環境向けの後方互換（鍵がURLに載るため署名方式を優先）
-        url = GAS_EXEC + '?p=punchgo&k=' + encodeURIComponent(ACCESS_KEY) + '&qr=' + encodeURIComponent(text) + '&back=' + back;
-      }
-      location.href = url;
-    }
-    async function startCamera(fromTap) {
-      unlockAudio();
-      try {
-        if (video.srcObject) { video.srcObject.getTracks().forEach(function (t) { t.stop(); }); video.srcObject = null; }
-        var stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: camFacing } });
-        video.srcObject = stream; video.classList.toggle('mirror', camFacing === 'user');
-        try { await video.play(); } catch (e) {}
-        show('scan'); scanning = true; navigating = false; requestAnimationFrame(loop);
-        clearTimeout(idleTimer); idleTimer = setTimeout(goClock, 30000); // 30秒無操作で時計に戻る
-        return true;
-      } catch (err) {
-        $('startErr').style.display = 'block';
-        $('startErr').innerHTML = 'カメラを起動できません。設定 → Safari → カメラ を「許可」にして再読み込みしてください';
-        show('start'); return false;
-      }
-    }
-    function goClock() {
-      scanning = false; clearTimeout(idleTimer); clearTimeout(resultTimer);
-      if (video.srcObject) { video.srcObject.getTracks().forEach(function (t) { t.stop(); }); video.srcObject = null; } // カメラOFF
-      show('clock');
-    }
-    function goScan() { clearTimeout(resultTimer); startCamera(true); }
-
-    // タップで打刻開始（時計・結果画面のどこをタップしてもスキャンへ）
-    views.clock.addEventListener('click', goScan);
-    views.result.addEventListener('click', goScan);
-    $('startBtn').addEventListener('click', function (e) { e.stopPropagation(); startCamera(true); });
-    $('toClock').addEventListener('click', function (e) { e.stopPropagation(); goClock(); });
-    $('flip').addEventListener('click', function (e) {
-      e.stopPropagation();
-      camFacing = (camFacing === 'user') ? 'environment' : 'user';
-      try { localStorage.setItem(CAM_STORE, camFacing); } catch (e2) {}
-      startCamera(true);
-    });
-
-    // GAS結果ページから history.back() で戻った場合もカメラを止めて時計へ
-    window.addEventListener('pageshow', function (ev) {
-      navigating = false;
-      if (tryRenderResult()) return;
-      if (ev.persisted) goClock();
-    });
-
-    // ---- 起動 ----
-    if (!ACCESS_KEY) { show('setup'); }
-    else if (!tryRenderResult()) { goClock(); } // 既定は時計待機（カメラOFF）。初回タップで許可＆起動
-  </script>
+  <!-- QR生成: qrcode-generator@1.4.4 の qrcode.js を同梱（外部CDNに依存しない。SHA-384 は gas/qrcards.html のSRIと同じ値で確認済み） -->
+  <script src="qrcode.js"></script>
+  <script src="app.js"></script>
 </body>
 </html>
