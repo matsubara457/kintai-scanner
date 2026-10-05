@@ -3,12 +3,12 @@
 //  ナハトX勤怠 ― 常設QR表示ページ（iPad用）
 //  このページは「30秒ごとに変わるQRを表示し続ける」だけ。カメラも、打刻の確定もしない。
 //  通信は、疎通と時計のずれの確認（同じオリジンへの fetch）だけ。
-//  各自がスマホでQRを読む → GAS（?p=scan）が署名と時刻を検証し、会社のGoogleアカウントで本人を確認して記録する。
-//  QRの中身は「GASのURL + 時刻窓 w + 署名 s」。署名の鍵（KIOSK_KEY）は端末の中だけにあり、画面にも console にも出さない。
+//  各自がスマホでQRを読む → 中継ページ（go/）が Chrome で GAS の受付（?p=scan）を開かせる
+//  → GAS が署名と時刻を検証し、会社のGoogleアカウントで本人を確認して記録する。
+//  QRの中身は「中継ページのURL + 時刻窓 w + 署名 s」。署名の鍵（KIOSK_KEY）は端末の中だけにあり、画面にも console にも出さない。
 // ============================================================
 
-// 読み取ったスマホが開く先（GASのウェブアプリ）。公開URLで秘密ではない
-var GAS_EXEC = 'https://script.google.com/a/macros/nahato.co.jp/s/AKfycby9JORQVA2E4_-ME2N73agDVhMAi1poWEg9Ju62Kl6o-KtVIZ_4jzkRzcMbr5pVjeFS_g/exec';
+// GASのURL（受付ページ）は、このページには持たない。行き先は中継ページ go/go.js の GAS_EXEC だけにある
 
 // 出勤／退勤の境目（HH:mm）。画面の案内文に出すだけの表示用で、実際の判定はGAS側が行う。
 // GAS は境目ちょうどを退勤として扱う（境目より前＝出勤、境目以降＝退勤）。
@@ -82,7 +82,7 @@ var KIOSK_KEY = kiosk.key;
 // ---- 署名（GAS側 kioskSig と完全に一致させる。仕様を変えないこと） ----
 //   w = floor(Date.now() / 30000)
 //   s = HMAC-SHA256(鍵 = KIOSK_KEY 文字列そのもののUTF-8（base64として復号しない）, "kiosk:v1:" + w) を base64url にした先頭22文字
-//   QR = GAS_EXEC + '?p=scan&w=' + w + '&s=' + s
+//   QR = ROUTER_URL + '?w=' + w + '&s=' + s      （ROUTER_URL は下。中継ページが GAS_EXEC + '?p=scan&w=' + w + '&s=' + s を開く）
 function windowOf(ms) { return Math.floor(ms / WINDOW_MS); }
 
 function b64url(buf) {
@@ -109,7 +109,14 @@ async function signWindow(w, keyStr) {
   return b64url(sig).slice(0, 22);
 }
 
-function scanUrl(w, s) { return GAS_EXEC + '?p=scan&w=' + w + '&s=' + s; }
+// QRの中身は、GASの受付ページのURLそのものではなく、中継ページ（go/）のURLにする。
+// スマホの標準カメラはQRの中身を Safari などで開くので、Chrome で開かせるための中継ページを経由する（GAS 側の受付は変えていない）。
+// 中継ページのURLは、このページの origin と path だけから作る。#ks= のフラグメント（鍵）も、? 以降の検索文字列も、QRには入れない。
+var ROUTER_URL = (function () {
+  try { return new URL('go/', location.origin + location.pathname).href; } catch (e) { return null; }
+})();
+
+function scanUrl(w, s) { return ROUTER_URL + '?w=' + w + '&s=' + s; }
 
 // ---- 画面の部品 ----
 var shiftEl = $('shift'), card = $('qrCard'), frame = $('qrFrame'), canvas = $('qr'), barEl = $('bar');
@@ -367,6 +374,10 @@ function boot() {
   if (typeof qrcode !== 'function') {
     return showMessage('⚠️', 'QRを作る部品を読み込めませんでした',
       'qrcode.js が見つかりません。ページを再読み込みしてください。', '直らないときは管理者に知らせてください。', true);
+  }
+  if (!ROUTER_URL) {
+    return showMessage('⚠️', 'QRの行き先を決められません',
+      'このページのURLから、中継ページ（go/）のURLを作れませんでした。', 'https:// のページとして開いているか確認し、直らないときは管理者に知らせてください。', true);
   }
   if (kiosk.bad) {
     return showMessage('⚠️', 'セットアップ用URLの鍵の形式が正しくありません',

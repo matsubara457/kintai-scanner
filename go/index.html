@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<!-- 許すのは同一オリジンのスクリプトだけ。通信（connect-src）は一切許さない。インラインのスクリプトは動かさない -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'none'; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="referrer" content="no-referrer" />
+<title>ナハトX勤怠</title>
+<style>
+  /* iPadの表示ページ（index.html）の夜の配色に合わせる。フォントは端末のものだけ */
+  :root { --g1: #0d1526; --g2: #233960; --accent: #6fd6ff; --ink: #fff; --card: rgba(255,255,255,.07); --card-line: rgba(255,255,255,.14); }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  [hidden] { display: none !important; }
+  html, body { margin: 0; }
+  body {
+    min-height: 100vh; min-height: 100dvh; display: grid; place-items: center;
+    padding: max(1.2rem, env(safe-area-inset-top)) max(1.2rem, env(safe-area-inset-right)) max(1.2rem, env(safe-area-inset-bottom)) max(1.2rem, env(safe-area-inset-left));
+    background: radial-gradient(120% 80% at 18% 12%, rgba(35,57,96,.55) 0%, transparent 60%), linear-gradient(155deg, var(--g1), var(--g2));
+    color: var(--ink);
+    font-family: system-ui, -apple-system, "Hiragino Sans", "Hiragino Kaku Gothic ProN", sans-serif;
+    -webkit-text-size-adjust: 100%; text-size-adjust: 100%;
+  }
+  .wrap { width: min(100%, 22rem); text-align: center; }
+  .status { margin: 0 0 1.5rem; font-size: 1.15rem; font-weight: 700; letter-spacing: .03em; line-height: 1.7; }
+  .actions { display: flex; flex-direction: column; align-items: center; gap: .7rem; }
+  .btn { -webkit-appearance: none; appearance: none; font: inherit; font-size: .95rem; font-weight: 700; letter-spacing: .03em;
+    min-width: 12rem; min-height: 44px; padding: .55em 1.6em; border-radius: 999px; cursor: pointer; touch-action: manipulation;
+    color: var(--ink); background: var(--card); border: 1px solid var(--card-line); }
+  .btn.primary { color: var(--g1); background: var(--accent); border-color: var(--accent); }
+  .btn:active { opacity: .8; }
+</style>
+</head>
+<body>
+  <main class="wrap">
+    <p class="status" id="status" role="status">Chromeで開いています…</p>
+    <div class="actions" id="actions">
+      <button type="button" class="btn primary" id="btnChrome">Chromeで開く</button>
+      <button type="button" class="btn" id="btnHere">このまま開く</button>
+    </div>
+  </main>
+  <script src="go.js"></script>
+</body>
+</html>
